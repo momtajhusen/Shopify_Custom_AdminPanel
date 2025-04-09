@@ -1,0 +1,90 @@
+🔷 Admin Panel – Menu & Page Flow (With Icons & Details)
+📁 1. Dashboards
+Submenu:
+🔹 Overview Dashboard
+✅📌 Total Orders, Fulfilled, Unfulfilled, Assigned ka real-time count
+✅📌 Weekly shipping chart / order trend
+✅📌 Vendors count & new order highlight cards
+
+🧑‍💼 2. Vendors
+Page: Vendor List
+✅ 📌 Vendor ka name, phone, code create/edit/update/delete ka option
+✅ 📌 Table me search, filter, and pagination enabled
+✅ 📌 No separate detail page, sab kuch list view me edit hoga
+
+📦 3. Order List
+Page: All Orders
+✅ 📌 Shopify se sync orders with: Order ID, Customer Name, Amount, Payment Type
+✅ 📌 Status badge: Paid, Assigned, Unfulfilled
+✅ 📌 Action button: View → goes to Order Details page
+
+📄 4. Order Details (opens from “View” button in Order List)
+Internal Page: Product-wise detail with assignment
+✅ 📌 Product image, name, quantity, price show hoga
+✅ 📌 Vendor assign dropdown for each product
+✅ 📌 AWB input box visible only if vendor assigned
+✅ 📌 Subtotal, discount, tax, total calculation
+✅ 📌 Buttons: Save Assignments / Update Assignments + Loader & SweetAlert
+
+🚚 5. Shipping Label
+Page: Label Generator
+📌 Jab vendor AWB daal deta hai, tab shipping label generate hota hai
+📌 Integrated with Bluedart/Delhivery API
+📌 Label download & print option with status update
+
+⚙️ 6. Settings
+Page: Configuration
+📌 Shopify API key & domain
+📌 WhatsApp API token
+📌 Bluedart/Delhivery credentials
+📌 Sirf admin ke liye secure config access
+============================================================================================================
+🟢 Vendor Panel – Menu & Page Flow (With Icons & Details)
+🏠 1. Dashboard
+Page: Vendor Overview
+✅ 📌 Vendor ke assigned products ka total, pending, delivered summary
+📌 Charts or cards me quick stats
+📌 Daily ka kaam yahin se track karta hai vendor
+
+📋 2. My Orders
+Page: Assigned Product List
+✅ 📌 Vendor ke assigned products list me dikhenge
+✅ 📌 Order ID, product name, quantity, price, status
+✅ 📌 View-only list — koi edit access nahi
+
+✈️ 3. AWB Entry
+Page: Dispatch Panel
+✅ 📌 Vendor apne dispatched product ke liye AWB (Airway Bill) enter karega
+✅ 📌 AWB admin panel me dikhega for tracking
+✅ 📌 AWB daalne ke baad shipping label generate hota hai
+
+🚦 4. Order Status
+Page: Product Delivery Status
+✅ 📌 Assigned products ka status: Fulfilled, Unfulfilled, In-Transit
+📌 Real-time status updates from admin side reflect honge
+📌 Vendor ko action lene me help milta hai
+
+🔐 5. Profile Settings
+Page: Profile Management
+📌 Vendor name, mobile update
+📌 Password change option available
+📌 Secure login experience maintain karta hai
+
+✅ Total Summary (As per Proposal):
+Panel	Menus	Sub-Pages
+Admin Panel	
+Dashboards, 
+Vendors, 
+Orders, 
+Settings, 
+Shipping Label	Overview, 
+Order Details
+
+Vendor Panel	
+Dashboard, 
+My Orders, 
+AWB Entry, 
+Order Status, 
+Profile	–
+
+ 
