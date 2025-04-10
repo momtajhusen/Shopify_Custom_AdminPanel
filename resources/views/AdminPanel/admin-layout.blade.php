@@ -1,5 +1,8 @@
+@php
+  $admin = Auth::check() ? Auth::user() : null;
+  $vendor = Auth::guard('vendor')->check() ? Auth::guard('vendor')->user() : null;
+@endphp
 <!doctype html>
-
 <html
   lang="en"
   class="layout-navbar-fixed layout-menu-fixed layout-compact"
@@ -14,7 +17,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0" />
 
-    <title>Demo: Dashboard - Analytics | Vuexy - Bootstrap Dashboard PRO</title>
+    <title>Leheriya</title>
 
     <meta name="description" content="" />
 
@@ -608,8 +611,13 @@
                             </div>
                           </div>
                           <div class="flex-grow-1">
-                            <h6 class="mb-0">John Doe</h6>
-                            <small class="text-body-secondary">Admin</small>
+                            @if ($admin)
+                              <h6 class="mb-0">{{ $admin->name }}</h6>
+                              <small class="text-body-secondary">Admin</small>
+                            @elseif ($vendor)
+                              <h6 class="mb-0">{{ $vendor->name }}</h6>
+                              <small class="text-body-secondary">Vendor</small>
+                            @endif
                           </div>
                         </div>
                       </a>
@@ -618,13 +626,13 @@
                       <div class="dropdown-divider my-1 mx-n2"></div>
                     </li>
                     <li>
-                      <a class="dropdown-item" href="pages-profile-user.html">
+                      <a class="dropdown-item" href="{{ route('admin.settings') }}">
                         <i class="icon-base ti tabler-user me-3 icon-md"></i
                         ><span class="align-middle">My Profile</span>
                       </a>
                     </li>
                     <li>
-                      <a class="dropdown-item" href="pages-account-settings-account.html">
+                      <a class="dropdown-item" href="{{ route('admin.settings') }}">
                         <i class="icon-base ti tabler-settings me-3 icon-md"></i
                         ><span class="align-middle">Settings</span>
                       </a>
@@ -749,7 +757,11 @@
 
     <!-- Page JS -->
     <script src="{{ asset('assets/js/dashboards-analytics.js') }}"></script>
+
+
     @yield('scripts')
     @stack('scripts')
+
   </body>
 </html>
+ 

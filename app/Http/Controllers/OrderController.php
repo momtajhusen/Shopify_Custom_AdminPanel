@@ -8,10 +8,11 @@ use Illuminate\Support\Facades\Http;
 use App\Models\OrderAssignment;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Carbon\Carbon; 
 
 class OrderController extends Controller
 {
-    /**
+/**
      * Display a listing of the resource.
      */
     public function index()
@@ -85,7 +86,6 @@ class OrderController extends Controller
     
         return view('AdminPanel.orders.index', compact('orders', 'pending', 'assigned', 'completed', 'failed'));
     }
-    
 
     public function show(string $id)
     {
@@ -172,7 +172,7 @@ class OrderController extends Controller
     
         return view('AdminPanel.orders.show', compact('order', 'vendors'));
     }
-    
+
     public function assignVendorAjax(Request $request, $id)
     {
         $request->validate([
@@ -350,13 +350,30 @@ class OrderController extends Controller
             return redirect()->back()->with('error', 'Something went wrong while fetching data.');
         }
     }
-    
+
     public function vendorReport(Request $request)
     {
-        $assignments = OrderAssignment::with('vendor')->latest()->get();
         $shop = config('services.shopify.base_url');
         $accessToken = config('services.shopify.access_token');
     
+        $query = OrderAssignment::with('vendor')->latest();
+    
+        if ($request->vendor_id) {
+            $query->where('vendor_id', $request->vendor_id);
+        }
+    
+        if ($request->status) {
+            $query->where('status', $request->status);
+        }
+    
+        if ($request->from_date && $request->to_date) {
+            $query->whereBetween('created_at', [
+                Carbon::parse($request->from_date)->startOfDay(),
+                Carbon::parse($request->to_date)->endOfDay()
+            ]);
+        }
+    
+        $assignments = $query->get();
         $data = [];
     
         foreach ($assignments as $assignment) {
@@ -364,12 +381,10 @@ class OrderController extends Controller
                 $productId = $assignment->product_id;
                 $orderId = $assignment->order_id;
     
-                // Fetch Order
                 $orderRes = Http::withHeaders([
                     'X-Shopify-Access-Token' => $accessToken
                 ])->get("https://{$shop}/admin/api/2023-07/orders/{$orderId}.json");
     
-                // Fetch Product
                 $productRes = Http::withHeaders([
                     'X-Shopify-Access-Token' => $accessToken
                 ])->get("https://{$shop}/admin/api/2023-07/products/{$productId}.json");
@@ -398,7 +413,8 @@ class OrderController extends Controller
                     'quantity'      => $lineItem['quantity'] ?? 0,
                     'status'        => $assignment->status,
                     'assigned_at'   => $assignment->created_at->format('d-m-Y h:i A'),
-                ];                
+                    'sku'           => $lineItem['sku'] ?? 'N/A',
+                ];
             } catch (\Exception $e) {
                 \Log::error("Admin Report Error: " . $e->getMessage());
                 continue;
@@ -413,17 +429,15 @@ class OrderController extends Controller
             'shipped'      => 5,
             'in_transit'   => 6,
             'delivered'    => 7,
-
         ];
     
-        usort($data, function ($a, $b) use ($statusOrder) {
-            $aOrder = $statusOrder[$a['status']] ?? 99;
-            $bOrder = $statusOrder[$b['status']] ?? 99;
-            return $aOrder <=> $bOrder;
-        });
+        usort($data, fn($a, $b) => ($statusOrder[$a['status']] ?? 99) <=> ($statusOrder[$b['status']] ?? 99));
     
-        return view('AdminPanel.reports.vendor-product-report', compact('data'));
+        $vendors = \App\Models\Vendor::select('id', 'name')->orderBy('name')->get();
+    
+        return view('AdminPanel.reports.vendor-product-report', compact('data', 'vendors'));
     }
+    
 
     public function assignedProductDetails(Request $request)
     {
@@ -531,10 +545,7 @@ class OrderController extends Controller
             return back()->with('error','Something went wrong while fetching details.');
         }
     }
-        
-
 }
-
 
 
 

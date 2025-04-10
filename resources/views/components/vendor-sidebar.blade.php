@@ -12,5 +12,12 @@
         <div>My Orders</div>
       </a>
     </li>
+    
+    <li class="menu-item {{ request()->routeIs('admin.settings') ? 'active' : '' }}">
+      <a href="{{ route('admin.settings') }}" class="menu-link">
+        <i class="menu-icon icon-base ti tabler-settings"></i>
+        <div>Settings</div>
+      </a>
+    </li>
   </ul>
   

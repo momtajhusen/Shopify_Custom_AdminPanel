@@ -35,7 +35,7 @@ Page: Label Generator
 ⚙️ 6. Settings
 Page: Configuration
 📌 Shopify API key & domain
-📌 WhatsApp API token
+✅ 📌 WhatsApp API token
 📌 Bluedart/Delhivery credentials
 📌 Sirf admin ke liye secure config access
 ============================================================================================================
@@ -66,8 +66,8 @@ Page: Product Delivery Status
 
 🔐 5. Profile Settings
 Page: Profile Management
-📌 Vendor name, mobile update
-📌 Password change option available
+✅ 📌 Vendor name, mobile update
+✅ 📌 Password change option available
 📌 Secure login experience maintain karta hai
 
 ✅ Total Summary (As per Proposal):
