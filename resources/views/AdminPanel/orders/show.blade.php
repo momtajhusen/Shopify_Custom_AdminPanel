@@ -206,14 +206,10 @@
       // Handler for Assign/Update button click
       $('.assign-btn, .update-btn').click(function () {
         let btn = $(this);
-        // Get product and order IDs from data attributes
         let productId = btn.data('product-id');
         let orderId = btn.data('order-id');
-        // Get selected vendor ID from the dropdown
         let vendorId = $(`.vendor-select[data-product-id="${productId}"]`).val();
-        // Get the product name from the table row
         let productName = btn.closest('tr').find('.product-name').text();
-        // Determine if button action is "Assign" or "Update"
         let actionType = btn.hasClass('assign-btn') ? 'Assign' : 'Update';
 
         // Validate vendor selection
@@ -238,7 +234,6 @@
           if (result.isConfirmed) {
             btn.prop('disabled', true).text(`${actionType}ing...`);
 
-            // AJAX POST request to assign/update vendor for the product
             $.ajax({
               url: "{{ route('orders.assignVendorAjax', $order['id']) }}",
               type: "POST",
@@ -257,7 +252,6 @@
                   color: '#fff'
                 });
 
-                // Update button appearance after successful assign/update
                 btn.removeClass('btn-primary assign-btn')
                    .addClass('btn-warning update-btn')
                    .text('Update')
@@ -278,7 +272,6 @@
         });
       });
 
-      // Display full-size image in modal when the thumbnail is clicked
       $('.product-thumbnail').click(function () {
         let imageUrl = $(this).data('image');
         $('#previewImage').attr('src', imageUrl);

@@ -20,7 +20,7 @@ class DashboardController extends Controller
         $shop        = config('services.shopify.base_url');
         $accessToken = config('services.shopify.access_token');
     
-        // Product-level counts
+        // Product counts
         $totalProducts = 0;
         $assignedProducts = 0;
         $inProcessProducts = 0;
@@ -77,14 +77,12 @@ class DashboardController extends Controller
     {
         $vendorId = auth()->guard('vendor')->id();
         
-        // Get the count of orders grouped by status
         $orderCounts = OrderAssignment::where('vendor_id', $vendorId)
             ->selectRaw('status, count(*) as count')
             ->groupBy('status')
             ->pluck('count', 'status')
             ->toArray();
         
-        // Define default values for missing statuses
         $statuses = [
             'assigned', 'accepted', 'in_process', 'ready', 'shipped', 'in_transit', 'delivered', 'cancelled'
         ];
@@ -95,10 +93,8 @@ class DashboardController extends Controller
             }
         }
     
-        // Calculate pending orders as assigned + accepted
         $pending = $orderCounts['assigned'] + $orderCounts['accepted'];
     
-        // Total assignments
         $totalAssigned = array_sum($orderCounts);
         
         return view('VendorPanel.dashboard.overview', [

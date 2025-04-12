@@ -78,7 +78,6 @@ class OrderController extends Controller
             return $order['status_order'];
         });
     
-        // Count orders based on status
         $pending = $orders->where('status', 'pending')->count();
         $assigned = $orders->where('status', 'assigned')->count();
         $completed = $orders->where('status', 'delivered')->count();
@@ -92,7 +91,6 @@ class OrderController extends Controller
         $shop = config('services.shopify.base_url');
         $accessToken = config('services.shopify.access_token');
     
-        // Fetch Shopify order details
         $orderResponse = Http::withHeaders([
             'X-Shopify-Access-Token' => $accessToken
         ])->get("https://{$shop}/admin/api/2023-07/orders/{$id}.json");
@@ -103,12 +101,10 @@ class OrderController extends Controller
     
         $shopifyOrder = $orderResponse->json('order');
     
-        // Get vendor assignments from DB
         $assignments = \App\Models\OrderAssignment::where('order_id', $shopifyOrder['id'])
             ->get()
             ->keyBy('product_id');
     
-        // Prepare products with image, vendor, and status
         $products = collect($shopifyOrder['line_items'])->map(function ($item) use ($shop, $accessToken, $assignments) {
             $productImage = null;
     
@@ -126,9 +122,8 @@ class OrderController extends Controller
                 }
             }
     
-            // Optional fallback image if image is not found
             if (!$productImage) {
-                $productImage = asset('assets/images/no-image.png'); // make sure this exists in public path
+                $productImage = asset('assets/images/no-image.png'); 
             }
     
             $assignment = $assignments[$item['product_id']] ?? null;
@@ -200,7 +195,6 @@ class OrderController extends Controller
     
         $orders = [];
     
-        // Define the status order including all possible statuses from the database enum
         $statusOrder = [
             'assigned'    => 1,
             'accepted'    => 2,
@@ -209,7 +203,7 @@ class OrderController extends Controller
             'shipped'     => 5,
             'in_transit'  => 6,
             'delivered'   => 7,
-            'pending'     => 8,  // Default value for any unknown status
+            'pending'     => 8, 
         ];
     
         foreach ($assignments as $assignment) {
@@ -245,7 +239,7 @@ class OrderController extends Controller
                         'title'       => $product['title'] ?? 'N/A',
                         'quantity'    => $lineItem['quantity'] ?? '-',
                         'price'       => $lineItem['price'] ?? '-',
-                        'status'      => $assignment->status ?? 'pending', // Default to 'pending' if no status
+                        'status'      => $assignment->status ?? 'pending', 
                         'created_at'  => $assignment->created_at,
                     ];
                 }
@@ -255,13 +249,10 @@ class OrderController extends Controller
             }
         }
     
-        // Sort the orders array by status based on the defined status order
         usort($orders, function($a, $b) use ($statusOrder) {
-            // Ensure both a and b have a status set, defaulting to 'pending' if missing
             $statusA = $a['status'] ?? 'pending';
             $statusB = $b['status'] ?? 'pending';
     
-            // Ensure the status exists in the $statusOrder array and assign it a default if not
             return $statusOrder[$statusA] <=> $statusOrder[$statusB];
         });
     
@@ -296,14 +287,12 @@ class OrderController extends Controller
     
             $order = $orderResponse['order'];
     
-            // Filter only line item that matches product_id
             $lineItem = collect($order['line_items'])->firstWhere('product_id', (int) $productId);
     
             if (!$lineItem) {
                 return redirect()->back()->with('error', 'Product not found in this order.');
             }
     
-            // Validate this assignment belongs to current vendor
             $vendorId = auth()->guard('vendor')->id();
             $assignment = OrderAssignment::where('order_id', $orderId)
                 ->where('product_id', $productId)
@@ -314,14 +303,12 @@ class OrderController extends Controller
                 return redirect()->back()->with('error', 'You are not assigned to this product.');
             }
     
-            // Check if a price has been previously set by the vendor for the same product
             $previousPrice = OrderAssignment::where('product_id', $productId)
                 ->where('vendor_id', $vendorId)
                 ->whereNotNull('vendor_price')
                 ->latest()
                 ->value('vendor_price');
     
-            // Get product image using product_id
             $productImageUrl = null;
             $productResponse = Http::withHeaders([
                 'X-Shopify-Access-Token' => $accessToken,
@@ -342,7 +329,7 @@ class OrderController extends Controller
                 'assignment'      => $assignment,
                 'assignmentId'    => $assignment->id ?? null,
                 'productImageUrl' => $productImageUrl,
-                'previousPrice'   => $previousPrice, // Pass the previous price to the view
+                'previousPrice'   => $previousPrice,  
             ]);
     
         } catch (\Exception $e) {

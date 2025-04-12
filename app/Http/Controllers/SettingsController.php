@@ -26,14 +26,10 @@ class SettingsController extends Controller
     public function update(Request $request)
     {
         $validated = $request->validate([
-            // 'shopify_api_key'      => 'required|string',
-            // 'shopify_domain'       => 'required|string',
             'whatsapp_api_token'   => 'required|string',
-            // 'bluedart_delhivery'   => 'required|string',
-            // 'secure_access_password' => 'required|string'
         ]);
     
-        // Remove or comment out this check if not needed.
+        
         // if ($validated['secure_access_password'] !== config('admin.secure_password')) {
         //     return back()->withErrors([
         //         'secure_access_password' => 'Invalid secure access password.'
