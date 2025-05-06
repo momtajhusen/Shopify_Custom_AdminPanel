@@ -40,4 +40,10 @@ return [
         'access_token' => env('SHOPIFY_ACCESS_TOKEN'),
     ],
 
+    'interakt' => [
+    'api_key' => env('INTERAKT_API_KEY'),
+    'url'     => env('INTERAKT_URL'),
+    ],
+
+
 ];

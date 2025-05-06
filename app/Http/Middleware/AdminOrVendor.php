@@ -13,6 +13,7 @@ class AdminOrVendor
             return $next($request);
         }
 
-        return redirect()->route('admin.login')->withErrors(['Access denied.']);
+        // return redirect()->route('admin.login')->withErrors(['Access denied.']);
+        return redirect('/')->with('Access denied.');
     }
 }

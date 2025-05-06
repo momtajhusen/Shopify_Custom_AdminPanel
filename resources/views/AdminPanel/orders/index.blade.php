@@ -54,11 +54,10 @@
                                     $badgeClass = match($status) {
                                         'assigned'     => 'secondary',
                                         'accepted'     => 'info',
-                                        'in_process'   => 'warning',
-                                        'ready'        => 'primary',
                                         'shipped'      => 'dark',
                                         'in_transit'   => 'orange',
                                         'delivered'    => 'success',
+                                        'rejected'   => 'danger',
                                         default        => 'light'
                                     };
                                 @endphp

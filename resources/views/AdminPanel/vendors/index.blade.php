@@ -2,6 +2,7 @@
 
 @section('styles')
   <link rel="stylesheet" href="{{ asset('assets/vendor/libs/@form-validation/form-validation.css') }}" />
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
 @endsection
 
 @section('scripts')
@@ -71,7 +72,7 @@
                         </div>
                         <div class="mb-3">
                             <label for="phone" class="form-label">Phone</label>
-                            <input type="number" name="phone"  maxlength="10" class="form-control" id="phone">
+                            <input type="number" name="phone"  max="10" class="form-control phone" id="phone">
                         </div>
                         <div class="mb-3">
                             <label for="address" class="form-label">Address</label>
@@ -177,7 +178,7 @@
                                     </div>
                                     <div class="mb-3">
                                         <label for="phone_{{ $vendor->id }}" class="form-label">Phone</label>
-                                        <input type="text" name="phone" class="form-control" id="phone_{{ $vendor->id }}" value="{{ $vendor->phone }}"/>
+                                        <input type="text" name="phone" class="form-control phone" id="phone_{{ $vendor->id }}" value="{{ $vendor->phone }}"/>
                                     </div>
                                     <div class="mb-3">
                                         <label for="address_{{ $vendor->id }}" class="form-label">Address</label>
@@ -207,5 +208,19 @@
             setTimeout(() => alert.remove(), 500);
         });
     }, 3000);
+
+
+
+    $(document).ready(function(){
+  $('.phone').on('input', function(){
+    const $this = $(this);
+    let val = $this.val();
+
+    if (val.length > 10) {
+      $this.val(val.slice(0, 10));
+    }
+  });
+});
+
 </script>
 @endsection

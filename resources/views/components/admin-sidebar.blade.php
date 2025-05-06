@@ -20,6 +20,14 @@
     </a>
   </li>
 
+  <li class="menu-item {{ request()->routeIs('assigne-orders.*') ? 'active' : '' }}">
+    <a href="{{ route('assigne-orders.index') }}" class="menu-link">
+      <i class="menu-icon icon-base ti tabler-clipboard-list"></i>
+      <div>Assigned Orders</div>
+    </a>
+  </li>
+  
+
   <li class="menu-item {{ request()->routeIs('admin.vendor.report') ? 'active' : '' }}">
     <a href="{{ route('admin.vendor.report') }}" class="menu-link">
       <i class="menu-icon icon-base ti tabler-report-analytics"></i>

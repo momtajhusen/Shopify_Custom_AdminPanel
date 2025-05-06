@@ -18,6 +18,9 @@ class VendorMiddleware
             return $next($request);
         }
 
-        return redirect()->route('admin.login')->with('error', 'Access denied.');
+        // return redirect()->route('admin.login')->with('error', 'Access denied.');
+        return redirect('/')->with('Access denied.');
+
+        
     }
 }

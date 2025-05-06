@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0" />
-    <title>Demo: Login Basic - Pages | Leheriya - Bootstrap Dashboard PRO</title>
+    <title>Login Leheriya</title>
     <meta name="description" content="" />
 
     <!-- Favicon -->

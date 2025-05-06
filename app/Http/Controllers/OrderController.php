@@ -9,6 +9,10 @@ use App\Models\OrderAssignment;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon; 
+use App\Helpers\WhatsAppHelper;
+use App\Models\ShipmentWaybill;
+use Illuminate\Support\Facades\Response;
+
 
 class OrderController extends Controller
 {
@@ -24,6 +28,7 @@ class OrderController extends Controller
         $response = Http::withHeaders([
             'X-Shopify-Access-Token' => $accessToken
         ])->get($url);
+
     
         if ($response->failed()) {
             return view('AdminPanel.orders.index')->with([
@@ -36,6 +41,7 @@ class OrderController extends Controller
         }
     
         $shopifyOrders = $response->json()['orders'];
+
     
         // Define the status order
         $statusOrder = [
@@ -82,6 +88,7 @@ class OrderController extends Controller
         $assigned = $orders->where('status', 'assigned')->count();
         $completed = $orders->where('status', 'delivered')->count();
         $failed = $orders->where('status', 'cancelled')->count();
+
     
         return view('AdminPanel.orders.index', compact('orders', 'pending', 'assigned', 'completed', 'failed'));
     }
@@ -136,6 +143,8 @@ class OrderController extends Controller
                 'image'      => $productImage,
                 'vendor_id'  => $assignment->vendor_id ?? null,
                 'status'     => $assignment->status ?? 'pending',
+                'vendor_price'    => $assignment->vendor_price ?? null, 
+                'assignment_id'    => $assignment->id ?? null, 
             ];
         });
     
@@ -170,19 +179,246 @@ class OrderController extends Controller
 
     public function assignVendorAjax(Request $request, $id)
     {
+        // 1. Validate incoming assignments array
         $request->validate([
-            'vendor_assignments' => 'required|array',
-            'vendor_assignments.*.vendor_id' => 'required|exists:vendors,id',
+            'vendor_assignments'                => 'required|array',
+            'vendor_assignments.*.vendor_id'    => 'required|exists:vendors,id',
+            'vendor_assignments.*.vendor_price' => 'nullable|numeric|min:0',
         ]);
     
+        $errors         = [];
+        $successVendors = [];
+    
+        // Fetch Shopify credentials
+        $shop        = config('services.shopify.base_url');
+        $accessToken = config('services.shopify.access_token');
+    
+        // 2. Loop through each product => vendor assignment
         foreach ($request->vendor_assignments as $productId => $assignment) {
-            OrderAssignment::updateOrCreate(
-                ['order_id' => $id, 'product_id' => $productId],
-                ['vendor_id' => $assignment['vendor_id'], 'status' => 'assigned']
+            // 2a. Check existing assignment to decide if we should send a message
+            $existing = OrderAssignment::where('order_id', $id)
+                        ->where('product_id', $productId)
+                        ->first();
+    
+            $isNewAssignment  = is_null($existing);
+            $isVendorChanged  = $existing && $existing->vendor_id != $assignment['vendor_id'];
+    
+            // 2b. Create or update the assignment in DB
+            $orderAssign = OrderAssignment::firstOrNew([
+                'order_id'   => $id,
+                'product_id' => $productId,
+            ]);
+            $orderAssign->vendor_id    = $assignment['vendor_id'];
+            $orderAssign->vendor_price = $assignment['vendor_price'] ?? null;
+            $orderAssign->status       = 'assigned';
+            $orderAssign->save();
+    
+            // 2c. If this is neither a new assignment nor a vendor change, skip sending message
+            if (! $isNewAssignment && ! $isVendorChanged) {
+                // we only notify on first assign or when vendor actually changes
+                $successVendors[] = Vendor::find($assignment['vendor_id'])->name;
+                continue;
+            }
+    
+            // 2d. Load the Vendor model and ensure we have a WhatsApp number
+            $vendor      = Vendor::find($assignment['vendor_id']);
+            $phoneNumber = $vendor->phone;
+            if (! is_string($phoneNumber) || trim($phoneNumber) === '') {
+                $errors[] = "No WhatsApp number for {$vendor->name}";
+                continue;
+            }
+    
+            // 2e. Fetch the product image URL from Shopify
+            $productImageUrl = null;
+            try {
+                $productResponse = Http::withHeaders([
+                    'X-Shopify-Access-Token' => $accessToken,
+                    'Accept' => 'application/json',
+                ])->get("https://{$shop}/admin/api/2023-07/products/{$productId}.json");
+    
+                if ($productResponse->successful()) {
+                    $productData     = $productResponse->json('product', []);
+                    $productImageUrl = data_get($productData, 'image.src');
+                }
+            } catch (\Exception $e) {
+                // Log but don't block sending
+                \Log::warning("Could not fetch image for product {$productId}: " . $e->getMessage());
+            }
+    
+            // 2f. Fallback to a placeholder if no image found
+            if (! $productImageUrl) {
+                $productImageUrl = asset('assets/images/no-image.jpg');
+            }
+    
+            // 2g. Prepare the template body values
+            $bodyValues = [
+                $vendor->name,           // placeholder 1: vendor name
+                "#{$id}",                // placeholder 2: order ID
+                now()->format('d-m-Y'),  // placeholder 3: current date
+                url('/vendor/login'),    // placeholder 4: supplier panel link
+            ];
+    
+            // 2h. Send the WhatsApp image template
+            $sendStatus = \App\Helpers\WhatsAppHelper::sendImageMessage(
+                $phoneNumber,
+                $productImageUrl,
+                $bodyValues
             );
+    
+            // 2i. Record success or collect error message
+            if (! $sendStatus['status']) {
+                $errors[] = "Failed for {$vendor->name}: " . $sendStatus['message'];
+            } else {
+                $successVendors[] = $vendor->name;
+            }
         }
     
-        return response()->json(['message' => 'Vendors assigned successfully!']);
+        // 3. Return partial or full success response
+        if (count($errors)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Vendor(s) assigned, but some messages failed.',
+                'errors'  => $errors,
+            ]);
+        }
+    
+        return response()->json([
+            'success' => true,
+            'message' => 'Vendor(s) assigned and notified successfully!',
+            'vendors' => $successVendors,
+        ]);
+    }
+    
+    public function acceptPrice($id)
+    {
+        $assignment = OrderAssignment::where('id',$id)
+                      ->where('vendor_id', auth()->guard('vendor')->id())
+                      ->firstOrFail();
+    
+        $assignment->status = 'accepted';
+        $assignment->save();
+    
+        return back()->with('success','Price accepted!');
+    }
+    
+    public function rejectPrice($id)
+    {
+        $assignment = OrderAssignment::where('id',$id)
+                      ->where('vendor_id', auth()->guard('vendor')->id())
+                      ->firstOrFail();
+    
+        $assignment->vendor_price = null;
+        $assignment->status       = 'rejected';
+        $assignment->save();
+    
+        return back()->with('success','Price rejected – waiting for admin.');
+    }
+ 
+    public function assignOrders(Request $request)
+    {
+        // STEP 1: Apply filters
+        $query = OrderAssignment::with('vendor');
+    
+        if ($request->filled('vendor_id')) {
+            $query->where('vendor_id', $request->vendor_id);
+        }
+    
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+    
+        if ($request->filled('from_date')) {
+            $query->whereDate('created_at', '>=', $request->from_date);
+        }
+    
+        if ($request->filled('to_date')) {
+            $query->whereDate('created_at', '<=', $request->to_date);
+        }
+    
+        $assignments = $query->get();
+    
+        // Shopify Setup
+        $shop = config('services.shopify.base_url');
+        $accessToken = config('services.shopify.access_token');
+    
+        $orders = [];
+    
+        $statusOrder = [
+            'assigned'    => 1,
+            'accepted'    => 2,
+            'shipped'     => 3,
+            'in_transit'  => 4,
+            'delivered'   => 5,
+            'pending'     => 6,
+            'rejected'    => 7,
+        ];
+    
+        foreach ($assignments as $assignment) {
+            try {
+                $productId = $assignment->product_id;
+                $orderId   = $assignment->order_id;
+    
+                $productResponse = Http::withHeaders([
+                    'X-Shopify-Access-Token' => $accessToken,
+                    'Accept' => 'application/json',
+                ])->get("https://{$shop}/admin/api/2023-07/products/{$productId}.json");
+    
+                $orderResponse = Http::withHeaders([
+                    'X-Shopify-Access-Token' => $accessToken,
+                    'Accept' => 'application/json',
+                ])->get("https://{$shop}/admin/api/2023-07/orders/{$orderId}.json");
+    
+                if ($productResponse->successful() && $orderResponse->successful()) {
+                    $product = $productResponse['product'];
+                    $order   = $orderResponse['order'];
+    
+                    $lineItem = collect($order['line_items'])->firstWhere('product_id', (int) $productId);
+                    if (!$lineItem) continue;
+    
+                    $orders[] = [
+                        'product_id'    => $productId,
+                        'order_id'      => $orderId,
+                        'order_number'  => $order['order_number'] ?? 'N/A',
+                        'image'         => $product['image']['src'] ?? null,
+                        'title'         => $product['title'] ?? 'N/A',
+                        'quantity'      => $lineItem['quantity'] ?? '-',
+                        'price'         => $lineItem['price'] ?? '-',
+                        'status'        => $assignment->status ?? 'pending',
+                        'vendor_name'   => optional($assignment->vendor)->name ?? 'N/A',
+                        'created_at'    => $assignment->created_at,
+                    ];
+                }
+    
+            } catch (\Exception $e) {
+                Log::error("AssignOrders Shopify Error: " . $e->getMessage());
+            }
+        }
+    
+        // Sort by status
+        usort($orders, function ($a, $b) use ($statusOrder) {
+            return $statusOrder[$a['status']] <=> $statusOrder[$b['status']];
+        });
+    
+        // All vendors for dropdown
+        $vendors = Vendor::select('id', 'name')->get();
+
+    
+        return view('AdminPanel.orders.assigne-orders', [
+            'orders' => $orders,
+            'assignments' => $assignments,
+            'vendors' => $vendors,
+        ]);
+    }
+    
+
+    public function sendMessageToUser()
+    {
+        $number = '919876543210'; 
+        $message = 'Hello from Interakt Laravel Helper!';
+
+        $response = WhatsAppHelper::sendTextMessage($number, $message);
+
+        return response()->json($response);
     }
 
     public function vendorMyOrders(Request $request)
@@ -198,14 +434,13 @@ class OrderController extends Controller
         $statusOrder = [
             'assigned'    => 1,
             'accepted'    => 2,
-            'in_process'  => 3,
-            'ready'       => 4,
-            'shipped'     => 5,
-            'in_transit'  => 6,
-            'delivered'   => 7,
-            'pending'     => 8, 
+            'shipped'     => 3,
+            'in_transit'  => 4,
+            'delivered'   => 5,
+            'pending'     => 6, 
+            'rejected'   => 7,
         ];
-    
+        
         foreach ($assignments as $assignment) {
             try {
                 $productId = $assignment->product_id;
@@ -233,14 +468,15 @@ class OrderController extends Controller
     
                     // Add the order to the array, ensuring that 'status' is always set
                     $orders[] = [
-                        'product_id'  => $productId,
-                        'order_id'    => $orderId,
-                        'image'       => $product['image']['src'] ?? null,
-                        'title'       => $product['title'] ?? 'N/A',
-                        'quantity'    => $lineItem['quantity'] ?? '-',
-                        'price'       => $lineItem['price'] ?? '-',
-                        'status'      => $assignment->status ?? 'pending', 
-                        'created_at'  => $assignment->created_at,
+                        'product_id'    => $productId,
+                        'order_id'      => $orderId,
+                        'order_number'  => $order['order_number'] ?? 'N/A', 
+                        'image'         => $product['image']['src'] ?? null,
+                        'title'         => $product['title'] ?? 'N/A',
+                        'quantity'      => $lineItem['quantity'] ?? '-',
+                        'price'         => $lineItem['price'] ?? '-',
+                        'status'        => $assignment->status ?? 'pending',
+                        'created_at'    => $assignment->created_at,
                     ];
                 }
     
@@ -256,6 +492,7 @@ class OrderController extends Controller
             return $statusOrder[$statusA] <=> $statusOrder[$statusB];
         });
     
+        // return $orders;
         return view('VendorPanel.MyOrders.index', [
             'orders' => $orders,
             'assignments' => $assignments,
@@ -435,104 +672,400 @@ class OrderController extends Controller
             return back()->with('error', 'Order ID and Product ID are required.');
         }
     
-        $shop         = config('services.shopify.base_url');
-        $accessToken  = config('services.shopify.access_token');
+        $shop        = config('services.shopify.base_url');
+        $accessToken = config('services.shopify.access_token');
     
         try {
-            $orderRes   = Http::withHeaders(['X-Shopify-Access-Token'=>$accessToken])
-                              ->get("https://{$shop}/admin/api/2023-07/orders/{$orderId}.json");
+            // Fetch Shopify Order and Product
+            $orderRes = Http::withHeaders([
+                            'X-Shopify-Access-Token' => $accessToken
+                        ])->get("https://{$shop}/admin/api/2023-07/orders/{$orderId}.json");
     
-            $productRes = Http::withHeaders(['X-Shopify-Access-Token'=>$accessToken])
-                              ->get("https://{$shop}/admin/api/2023-07/products/{$productId}.json");
+            $productRes = Http::withHeaders([
+                            'X-Shopify-Access-Token' => $accessToken
+                        ])->get("https://{$shop}/admin/api/2023-07/products/{$productId}.json");
     
             if (!$orderRes->successful() || !$productRes->successful()) {
-                return back()->with('error','Failed to fetch order / product from Shopify.');
+                return back()->with('error', 'Failed fetching order or product from Shopify.');
             }
     
-            $order   = $orderRes['order'];
+            $order = $orderRes['order'];
             $product = $productRes['product'];
     
             $lineItem = collect($order['line_items'])
                         ->firstWhere('product_id', (int) $productId);
     
             if (!$lineItem) {
-                return back()->with('error','Product not found in this order.');
+                return back()->with('error', 'Product not found in this order.');
             }
     
             $assignment = OrderAssignment::with('vendor')
-                         ->where('order_id',$orderId)
-                         ->where('product_id',$productId)
-                         ->firstOrFail();
+                            ->where('order_id', $orderId)
+                            ->where('product_id', $productId)
+                            ->firstOrFail();
     
-            $data = [
-                'order_id'       => $orderId,
-                'product_id'     => $productId,
-                'product_title'  => $product['title']     ?? 'N/A',
-                'product_img'    => $product['image']['src'] ?? null,
-                'order_price'    => (float) $lineItem['price'],
-                'quantity'       => $lineItem['quantity'] ?? 0,
-                'vendor_price'   => $assignment->vendor_price,
-                'margin'         => $assignment->vendor_price !== null
-                                    ? (float)$lineItem['price'] - (float)$assignment->vendor_price
-                                    : null,
-                'status'         => $assignment->status,
-                'assigned_at'    => $assignment->created_at->format('d‑m‑Y h:i A'),
+            // Shipment Waybill Check
+            $shipmentWaybill = ShipmentWaybill::where('order_id', $orderId)
+                                ->where('product_id', $productId)
+                                ->first();
     
-                'vendor_name'    => $assignment->vendor->name   ?? 'N/A',
-                'vendor_id'      => $assignment->vendor->id     ?? 'N/A',
-                'vendor_email'   => $assignment->vendor->email  ?? 'N/A',
-                'vendor_phone'   => $assignment->vendor->phone  ?? 'N/A',
-                'awb_number'     => $assignment->awb_number,
-                'courier_company'=> $assignment->courier_company,
-                'dispatch_date'  => optional($assignment->dispatch_date)->format('d‑m‑Y'),
-                'tracking_url'   => $assignment->tracking_url,
+            $dispatch_awb = null;
+            $dispatch_status = null;
+            $dispatch_full_status = null;
+            $dispatch_tracking_history = [];
+    
+            if ($shipmentWaybill) {
+                $dispatch_awb = $shipmentWaybill->waybill;
+    
+                if ($dispatch_awb) {
+                    // Delhivery API Call
+                    $trackingRes = Http::get("https://track.delhivery.com/api/v1/packages/json", [
+                        'waybill' => $dispatch_awb,
+                        'token'   => 'dc7357e4fd952cf73a44ede8764fad9a01f74ed1',
+                    ]);
+    
+                    $trackingData = $trackingRes->json();
+    
+                    if (!empty($trackingData['ShipmentData'][0]['Shipment']['Status'])) {
+                        $statusInfo = $trackingData['ShipmentData'][0]['Shipment']['Status'];
+    
+                        $dispatch_status = $statusInfo['Status'] ?? null;
+                        $dispatch_full_status = $statusInfo;
+                    }
+    
+                    if (!empty($trackingData['ShipmentData'][0]['Shipment']['StatusUpdates'])) {
+                        foreach ($trackingData['ShipmentData'][0]['Shipment']['StatusUpdates'] as $update) {
+                            $dispatch_tracking_history[] = [
+                                'status'       => $update['Status'] ?? '',
+                                'location'     => $update['StatusLocation'] ?? '',
+                                'datetime'     => $update['StatusDateTime'] ?? '',
+                                'recieved_by'  => $update['RecievedBy'] ?? '',
+                                'status_code'  => $update['StatusCode'] ?? '',
+                                'status_type'  => $update['StatusType'] ?? '',
+                                'instruction'  => $update['Instructions'] ?? '',
+                            ];
+                        }
+                    }
+                }
+            }
+    
+            // Pickup Location Static
+            $pickup_location = [
+                'add'     => 'Basement, AU Small Finance Bank Building, Opposite Bal Bharti School Gate No. 2, Near Axis Bank Sector 12, Dwarka',
+                'country' => 'India',
+                'pin'     => '781001',
+                'phone'   => '7774855283',
+                'city'    => 'Guwahati',
+                'name'    => 'Leheriya',
+                'state'   => 'Assam',
             ];
     
+            // Customer Shipment Details
+            $shipment = [
+                'cus_product_id'   => $productId,
+                'cus_order_id'     => $orderId,
+                'country'          => $order['shipping_address']['country'] ?? 'India',
+                'city'             => $order['shipping_address']['city'] ?? '',
+                'state'            => $order['shipping_address']['province'] ?? '',
+                'pin'              => $order['shipping_address']['zip'] ?? '',
+                'add'              => trim(implode(', ', array_filter([
+                                        $order['shipping_address']['address1'] ?? '',
+                                        $order['shipping_address']['address2'] ?? '',
+                                    ]))),
+                'name'             => trim(($order['shipping_address']['first_name'] ?? '') . ' ' . ($order['shipping_address']['last_name'] ?? '')),
+                'phone'            => $order['shipping_address']['phone'] ?? ($order['phone'] ?? ''),
+                'order'            => (string) ($order['order_number'] ?? $orderId),
+                'payment_mode'     => (strtolower($order['financial_status'] ?? '') === 'cod') ? 'COD' : 'Prepaid',
+                'quantity'         => (string) ($lineItem['quantity'] ?? 1),
+                'total_amount'     => (string) ($order['total_price'] ?? 0),
+                'cod_amount'       => (strtolower($order['financial_status'] ?? '') === 'cod') ? (string) ($order['total_price'] ?? 0) : '0',
+                'return_name'      => $pickup_location['name'],
+                'return_add'       => $pickup_location['add'],
+                'return_city'      => $pickup_location['city'],
+                'return_state'     => $pickup_location['state'],
+                'return_pin'       => $pickup_location['pin'],
+                'return_country'   => $pickup_location['country'],
+                'return_phone'     => $pickup_location['phone'],
+            ];
+    
+            $customerShipment = [
+                'pickup_location' => $pickup_location,
+                'shipments' => [$shipment],
+            ];
+    
+            // Vendor to Admin Timeline
             $statusLabels = [
                 'assigned'   => 'Order assigned to vendor',
                 'accepted'   => 'Vendor accepted the order',
-                'in_process' => 'Vendor started processing',
-                'ready'      => 'Order packed / ready to ship',
                 'shipped'    => 'Parcel handed to courier',
                 'in_transit' => 'Parcel in transit',
                 'delivered'  => 'Order delivered',
             ];
     
-            $orderPlaced = [
-                'label' => "Order placed (Order ID: #{$orderId})",
-                'time'  => \Carbon\Carbon::parse($order['created_at'])->format('d‑m‑Y h:i A'),
-                'desc'  => 'Customer completed checkout',
+            $timeline = [
+                [
+                    'label' => "Order placed (#{$orderId})",
+                    'time'  => \Carbon\Carbon::parse($order['created_at'] ?? now())->format('d-m-Y h:i A'),
+                    'desc'  => 'Customer completed checkout'
+                ]
             ];
     
-            $timeline = [$orderPlaced];
-    
-            foreach ($statusLabels as $key=>$label){
-                if ($key === 'assigned') {
-                    $time = $assignment->created_at->format('d‑m‑Y h:i A');
-                } else {
-                    $time = '';    
-                }
-    
+            foreach ($statusLabels as $key => $label) {
+                $time = ($key === 'assigned')
+                      ? optional($assignment->created_at)->format('d-m-Y h:i A')
+                      : '';
                 $timeline[] = [
-                    'label' => ucfirst(str_replace('_',' ',$key)),
+                    'label' => ucfirst(str_replace('_', ' ', $key)),
                     'time'  => $time,
                     'desc'  => $label,
                 ];
-    
-                if ($key === $assignment->status) break;  
+                if ($key === $assignment->status) break;
             }
     
-            return view(
-                'AdminPanel.reports.assigned-product-details',
-                compact('data','timeline')
-            );
+            // View Data
+            $viewData = [
+                'order_id'                  => $order['order_number'] ?? $orderId,
+                'assigned_at'               => optional($assignment->created_at)->format('d-m-Y h:i A'),
+                'page_title'                => $product['title'] ?? 'Product',
+                'product_img'               => $product['image']['src'] ?? null,
+                'product_title'             => $product['title'] ?? '',
+                'order_price'               => (float)$lineItem['price'],
+                'quantity'                  => (int)$lineItem['quantity'],
+                'vendor_price'              => $assignment->vendor_price,
+                'status'                    => $assignment->status,
+                'vendor_name'               => $assignment->vendor->name ?? '',
+                'vendor_id'                 => $assignment->vendor->id ?? '',
+                'vendor_email'              => $assignment->vendor->email ?? '',
+                'vendor_phone'              => $assignment->vendor->phone ?? '',
+                'awb_number'                => $assignment->awb_number,
+                'courier_company'           => $assignment->courier_company,
+                'tracking_url'              => $assignment->tracking_url,
+    
+                'dispatch_awb'              => $dispatch_awb,
+                'dispatch_status'           => $dispatch_status,
+                'dispatch_full_status'      => $dispatch_full_status,
+                'dispatch_tracking_history' => $dispatch_tracking_history,
+    
+                'customer_shipment'         => $customerShipment,
+                'product_id'                => $productId,
+                'order_id'                  => $orderId,
+            ];
+    
+            return view('AdminPanel.reports.assigned-product-details', [
+                'data' => $viewData,
+                'timeline' => $timeline,
+            ]);
     
         } catch (\Throwable $e) {
-            \Log::error('Assigned Product Detail Error: '.$e->getMessage());
-            return back()->with('error','Something went wrong while fetching details.');
+            \Log::error('AssignedProductDetails Error: ' . $e->getMessage());
+            return back()->with('error', 'Something went wrong while fetching details.');
         }
     }
+    
+    public function createShipment(Request $request)
+    {
+        $request->validate([
+            'pickup_location' => 'required|array',
+            'pickup_location.add' => 'required|string',
+            'pickup_location.city' => 'required|string',
+            'pickup_location.state' => 'required|string',
+            'pickup_location.pin' => 'required|string',
+            'pickup_location.phone' => 'required|string',
+            'pickup_location.country' => 'required|string',
+            'pickup_location.name' => 'required|string',
+    
+            'shipments' => 'required|array|min:1',
+            'shipments.0.add' => 'required|string',
+            'shipments.0.city' => 'required|string',
+            'shipments.0.state' => 'required|string',
+            'shipments.0.pin' => 'required|string',
+            'shipments.0.name' => 'required|string',
+            'shipments.0.phone' => 'required|string',
+            'shipments.0.order' => 'required|string',
+            'shipments.0.payment_mode' => 'required|in:Prepaid,COD',
+            'shipments.0.quantity' => 'required|integer|min:1',
+            'shipments.0.total_amount' => 'required|numeric|min:0',
+            'shipments.0.cod_amount' => 'required|numeric|min:0',
+            'shipments.0.return_name' => 'required|string',
+            'shipments.0.return_add' => 'required|string',
+            'shipments.0.return_city' => 'required|string',
+            'shipments.0.return_state' => 'required|string',
+            'shipments.0.return_pin' => 'required|string',
+            'shipments.0.return_country' => 'required|string',
+            'shipments.0.return_phone' => 'required|string',
+    
+            'product_id' => 'required|string',
+            'order_id' => 'required|string',
+        ]);
+    
+        $allowedShipmentFields = [
+            'name', 'phone', 'add', 'payment_mode', 'total_amount', 'quantity',
+            'city', 'state', 'pin', 'country', 'order', 'cod_amount',
+            'return_name', 'return_add', 'return_city', 'return_state',
+            'return_pin', 'return_country', 'return_phone'
+        ];
+    
+        $fullShipment = $request->input('shipments')[0];
+    
+        $shipment = array_filter($fullShipment, function($key) use ($allowedShipmentFields) {
+            return in_array($key, $allowedShipmentFields);
+        }, ARRAY_FILTER_USE_KEY);
+    
+        // 👉 FORCE ORDER ID ko random bana do yahan (original + random number)
+        $shipment['order'] = $shipment['order'] . '-' . rand(1000, 9999);
+    
+        $payload = [
+            'pickup_location' => $request->input('pickup_location'),
+            'shipments' => [$shipment],
+        ];
+    
+        try {
+            $response = Http::asForm()->withHeaders([
+                'Authorization' => 'Token dc7357e4fd952cf73a44ede8764fad9a01f74ed1',
+                'Accept' => 'application/json',
+            ])->post('https://track.delhivery.com/api/cmu/create.json', [
+                'format' => 'json',
+                'data' => json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            ]);
+    
+            $res = $response->json();
+    
+            if (!empty($res['success'])) {
+                $package = $res['packages'][0];
+                $awb = $package['waybill'] ?? null;
+                $refOrderId = $package['refnum'] ?? null;
+    
+                if ($awb && $refOrderId) {
+                    ShipmentWaybill::create([
+                        'order_id' => (string) $request->input('order_id'),
+                        'product_id' => (string) $request->input('product_id'),
+                        'waybill' => $awb,
+                        'courier_name' => 'delhivery',
+                    ]);
+                }
+    
+                return response()->json([
+                    'success' => true,
+                    'message' => "AWB generated successfully: $awb",
+                    'response' => $res,
+                ]);
+            }
+    
+            return response()->json([
+                'success' => false,
+                'message' => $res['rmk'] ?? 'Unknown error.',
+                'remarks' => $res['packages'][0]['remarks'][0] ?? null,
+                'response' => $res,
+            ]);
+    
+        } catch (\Throwable $e) {
+            \Log::error('Delhivery Shipment Error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Something went wrong while creating shipment.',
+                'exception' => $e->getMessage()
+            ]);
+        }
+    }
+    
+    public function packingSlip(Request $request)
+    {
+        $waybill = $request->input('waybill');
+
+        if (!$waybill) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Waybill is required.',
+            ], 400);
+        }
+
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => 'Token dc7357e4fd952cf73a44ede8764fad9a01f74ed1',
+                'Accept' => 'application/json',
+            ])->get('https://track.delhivery.com/api/p/packing_slip', [
+                'wbns' => $waybill,
+            ]);
+
+            if ($response->ok()) {
+                $data = $response->json();
+
+
+                return $data;
+
+                if (!empty($data['packages'][0]['barcode'])) {
+                    $barcodeBase64 = $data['packages'][0]['barcode'];
+
+                    return response()->json([
+                        'success' => true,
+                        'message' => 'Packing slip generated.',
+                        'barcode_base64' => $barcodeBase64,
+                    ]);
+                }
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Barcode not found in response.',
+                    'raw_response' => $data,
+                ]);
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Delhivery API call failed.',
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Packing Slip Error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error generating packing slip.',
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+ 
+    public function downloadPackingSlip($awb)
+    {
+        $url = "https://api.delhivery.com/api/v1/packages/manifest/pdf/";
+    
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => 'Token dc7357e4fd952cf73a44ede8764fad9a01f74ed1', // 🔐 Use your .env token
+                'Content-Type'  => 'application/json',
+            ])->post($url, [
+                'wbns' => [$awb], // Waybill number in array
+            ]);
+    
+            if ($response->successful()) {
+                // PDF binary data
+                $pdfData = $response->body();
+                $filename = "PackingSlip-{$awb}.pdf";
+    
+                return Response::make($pdfData, 200, [
+                    'Content-Type'        => 'application/pdf',
+                    'Content-Disposition' => "attachment; filename={$filename}",
+                    'Content-Length'      => strlen($pdfData),
+                ]);
+            }
+    
+            return response()->json([
+                'status'  => $response->status(),
+                'message' => 'Failed to fetch packing slip.',
+                'details' => $response->body(),
+            ], $response->status());
+    
+        } catch (\Exception $e) {
+            return response()->json([
+                'error'   => 'Server error',
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+       
+    
+    
+    
+
 }
-
-
-

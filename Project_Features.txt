@@ -28,7 +28,7 @@ Internal Page: Product-wise detail with assignment
 
 🚚 5. Shipping Label
 Page: Label Generator
-📌 Jab vendor AWB daal deta hai, tab shipping label generate hota hai
+✅ 📌 Jab vendor AWB daal deta hai, tab shipping label generate hota hai
 📌 Integrated with Bluedart/Delhivery API
 📌 Label download & print option with status update
 
@@ -38,6 +38,8 @@ Page: Configuration
 ✅ 📌 WhatsApp API token
 📌 Bluedart/Delhivery credentials
 📌 Sirf admin ke liye secure config access
+
+
 ============================================================================================================
 🟢 Vendor Panel – Menu & Page Flow (With Icons & Details)
 🏠 1. Dashboard
@@ -86,5 +88,38 @@ My Orders,
 AWB Entry, 
 Order Status, 
 Profile	–
+---------------------------------------------------
+Blue Dart Login 
+user: DEL79448
+psd : Lehbluedart@123
 
- 
+
+
+--------------------  Order Create ------------------
+{
+    "cash_pickups_count": 0.0,
+    "package_count": 1,
+    "upload_wbn": "UPL2298608892598764421",
+    "replacement_count": 0,
+    "pickups_count": 0,
+    "packages": [
+        {
+            "status": "Success",
+            "client": "b031c1-THELEHERIYACREATIONS-do",
+            "sort_code": "DIM/VIM",
+            "remarks": [
+                ""
+            ],
+            "waybill": "19928210237226",
+            "cod_amount": 0.0,
+            "payment": "Pre-paid",
+            "serviceable": true,
+            "refnum": "528323"
+        }
+    ],
+    "cash_pickups": 0.0,
+    "cod_count": 0,
+    "success": true,
+    "prepaid_count": 1,
+    "cod_amount": 0.0
+}

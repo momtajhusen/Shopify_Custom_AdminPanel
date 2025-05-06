@@ -34,7 +34,7 @@
       <label for="status" class="form-label">Status</label>
       <select class="form-select" name="status" id="status">
         <option value="">All Status</option>
-        @foreach(['assigned', 'accepted', 'in_process', 'ready', 'shipped', 'in_transit', 'delivered'] as $status)
+        @foreach(['assigned', 'accepted', 'shipped', 'in_transit', 'delivered'] as $status)
           <option value="{{ $status }}" {{ request('status') == $status ? 'selected' : '' }}>
             {{ ucfirst(str_replace('_', ' ', $status)) }}
           </option>
@@ -112,11 +112,10 @@
                 $badgeClass = match($status) {
                     'assigned'     => 'secondary',
                     'accepted'     => 'info',
-                    'in_process'   => 'warning',
-                    'ready'        => 'primary',
                     'shipped'      => 'dark',
                     'in_transit'   => 'orange',
                     'delivered'    => 'success',
+                    'rejected'   => 'danger',
                     default        => 'light'
                 };
               @endphp

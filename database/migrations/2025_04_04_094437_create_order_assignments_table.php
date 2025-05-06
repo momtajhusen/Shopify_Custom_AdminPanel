@@ -17,6 +17,7 @@ return new class extends Migration
             $table->string('variant_id')->nullable(); 
             $table->unsignedBigInteger('vendor_id');
             // Pricing
+            $table->decimal('assign_price', 10, 2)->nullable();
             $table->decimal('vendor_price', 10, 2)->nullable();
             $table->string('awb_number')->nullable();
             $table->string('courier_company')->nullable();
@@ -25,12 +26,12 @@ return new class extends Migration
             $table->enum('status', [
                 'assigned',
                 'accepted',
-                'in_process',
-                'ready',
                 'shipped',
                 'in_transit',
-                'delivered'
+                'delivered',
+                'rejected'
             ])->default('assigned');
+            
 
             $table->timestamps();
             $table->foreign('vendor_id')->references('id')->on('vendors')->onDelete('cascade');

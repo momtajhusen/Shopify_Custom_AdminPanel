@@ -15,7 +15,7 @@ class AdminLoginController extends Controller
     {
         return view('AdminPanel.Auth.login');
     }
-
+    
     // Handle Admin Login
     public function login(Request $request)
     {
@@ -64,9 +64,6 @@ class AdminLoginController extends Controller
         return back()->withErrors(['login' => 'Invalid email/phone or password.'])->withInput();
     }
     
-    
-
- 
     public function logout(Request $request)
     {
         Auth::logout();

@@ -32,7 +32,7 @@
                 <thead>
                     <tr>
                         <th>#</th>
-                        <th>Product ID</th>
+                        <th>Order ID</th>
                         <th>Product Image</th>
                         <th>Product Name</th>
                         <th>Order Quantity</th>
@@ -44,8 +44,9 @@
                 <tbody>
                     @forelse($orders as $key => $order)
                     <tr>
+                        {{-- #{{ $order['order_number'] ?? 'N/A' }} --}}
                         <td>{{ $key + 1 }}</td>
-                        <td>{{ $order['product_id'] }}</td>
+                        <td>{{ $order['order_number'] }}</td>
                         <td>
                             @if($order['image'])
                                 <img src="{{ $order['image'] }}" alt="Product" style="width: 50px; border-radius:5px">
@@ -60,11 +61,10 @@
                                 $badgeClass = match($order['status']) {
                                     'assigned'     => 'secondary',
                                     'accepted'     => 'info',
-                                    'in_process'   => 'warning',
-                                    'ready'        => 'primary',
                                     'shipped'      => 'dark',
                                     'in_transit'   => 'orange',
                                     'delivered'    => 'success',
+                                    'rejected'   => 'danger',
                                     default        => 'light'
                                 };
                             @endphp

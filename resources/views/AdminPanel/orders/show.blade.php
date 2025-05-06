@@ -15,7 +15,10 @@
 
 @section('content')
 @php
-  // Additional assignment checks can be placed here if needed.
+  use Carbon\Carbon;
+  $products = $order['products'];
+  // detect if any product already has a vendor
+  $anyAssigned = collect($products)->contains(fn($p) => isset($p['vendor_id']));
 @endphp
 
 <div class="container-xxl flex-grow-1 container-p-y">
@@ -23,143 +26,188 @@
   <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
       <h5>Order #{{ $order['order_number'] }}</h5>
-      <p class="mb-0">{{ \Carbon\Carbon::parse($order['created_at'])->format('M d, Y h:i A') }}</p>
+      <p class="mb-0">{{ Carbon::parse($order['created_at'])->format('M d, Y h:i A') }}</p>
     </div>
   </div>
 
-  <!-- Product Table -->
+  <!-- Products Table -->
   <div class="card mb-4">
-    <div class="card-body table-responsive">
-      <table class="table table-bordered">
+    <div class="card-body table-responsive p-0">
+      <table class="table table-bordered mb-0">
         <thead>
           <tr>
             <th>Image</th>
-            <th>Product Id</th>
+            <th>Product&nbsp;ID</th>
             <th>Product</th>
             <th>Price</th>
             <th>Qty</th>
             <th>Total</th>
-            <th>Assign Vendor</th>
+            <th>Assign&nbsp;Vendor</th>
+            <th>Assign&nbsp;Price</th>
             <th>Action</th>
           </tr>
         </thead>
         <tbody>
-          @foreach($order['products'] as $product)
-            <tr>
-              <td>
-                @if($product['image'])
-                  <!-- Clicking the product thumbnail opens the modal for image preview -->
-                  <img src="{{ $product['image'] }}" alt="Image" class="img-thumbnail product-thumbnail" style="width: 50px; cursor: pointer; border-radius:5px" data-bs-toggle="modal" data-bs-target="#imageModal" data-image="{{ $product['image'] }}">
-                @else
-                  <span class="text-muted">N/A</span>
-                @endif
-              </td>
-              <td>#{{ $order['order_number'] }}-{{ $loop->iteration }}</td>
-              <td class="product-name">{{ $product['name'] }}</td>
-              <td>₹{{ number_format($product['price'], 2) }}</td>
-              <td>{{ $product['quantity'] }}</td>
-              <td>₹{{ number_format($product['price'] * $product['quantity'], 2) }}</td>
-              <td>
-                <!-- Dropdown list for vendor selection -->
-                <select class="form-select vendor-select" data-product-id="{{ $product['product_id'] }}">
-                  <option value="">-- Select Vendor --</option>
-                  @foreach($vendors as $vendor)
-                    <option value="{{ $vendor->id }}" {{ (isset($product['vendor_id']) && $product['vendor_id'] == $vendor->id) ? 'selected' : '' }}>
-                      {{ $vendor->name }} ({{ $vendor->vendor_code ?? 'N/A' }})
-                    </option>
-                  @endforeach
-                </select>
-              </td>
-              <td>
-                @php
-                  // Define final statuses that should show only a status badge.
-                  $finalStatuses = ['shipped', 'in_transit', 'delivered'];
-                @endphp
+          @php
+            $allUnassigned = collect($products)->every(fn($p) => empty($p['vendor_id']));
+          @endphp
 
-                @if(in_array($product['status'], $finalStatuses))
-                  @php
-                    // Color mapping for final statuses:
-                    $finalColor = [
-                      'shipped'    => 'bg-primary',   // Blue for Shipped
-                      'in_transit' => 'bg-warning',   // Yellow/Orange for In Transit
-                      'delivered'  => 'bg-success'    // Green for Delivered
-                    ];
-                    $badgeClass = $finalColor[$product['status']] ?? 'bg-success';
-                  @endphp
-                  <!-- Display only the status badge using the mapped color -->
-                  <span class="badge {{ $badgeClass }}">
-                    {{ ucfirst(str_replace('_', ' ', $product['status'])) }}
-                  </span>
-                @else
-                  <!-- For non-final statuses, display only the assign/update button -->
-                  <button 
-                    class="btn btn-sm {{ isset($product['vendor_id']) ? 'btn-warning update-btn' : 'btn-primary assign-btn' }}" 
-                    data-product-id="{{ $product['product_id'] }}"
-                    data-order-id="{{ $order['id'] }}"
-                  >
-                    {{ isset($product['vendor_id']) ? 'Update' : 'Assign' }}
-                  </button>
-                @endif
-              </td>
-            </tr>
+          @foreach($products as $product)
+          <tr>
+            <td>
+              @if($product['image'])
+                <img src="{{ $product['image'] }}"
+                     class="img-thumbnail product-thumbnail"
+                     style="width:50px;cursor:pointer;border-radius:5px"
+                     data-bs-toggle="modal"
+                     data-bs-target="#imageModal"
+                     data-image="{{ $product['image'] }}" />
+              @else
+                <span class="text-muted">N/A</span>
+              @endif
+            </td>
+            <td>#{{ $order['order_number'] }}-{{ $loop->iteration }}</td>
+            <td class="product-name">{{ $product['name'] }}</td>
+            <td>₹{{ number_format($product['price'],2) }}</td>
+            <td>{{ $product['quantity'] }}</td>
+            <td>₹{{ number_format($product['price'] * $product['quantity'],2) }}</td>
+
+            <!-- Vendor select -->
+            <td>
+              <select class="form-select vendor-select" data-product-id="{{ $product['product_id'] }}">
+                <option value="">-- Select Vendor --</option>
+                @foreach($vendors as $vendor)
+                  <option value="{{ $vendor->id }}"
+                    {{ (isset($product['vendor_id']) && $product['vendor_id']==$vendor->id) ? 'selected':'' }}>
+                    {{ $vendor->name }} ({{ $vendor->vendor_code ?? 'N/A' }})
+                  </option>
+                @endforeach
+              </select>
+            </td>
+
+            <!-- Vendor price -->
+            <td>
+              <input type="number"
+                     class="form-control assign-price"
+                     data-product-id="{{ $product['product_id'] }}"
+                     value="{{ $product['vendor_price'] ?? '' }}"
+                     placeholder="price" min="0" />
+            </td>
+
+            <!-- Action or status badge -->
+            <td>
+              @php
+                $finalStatuses = ['shipped','in_transit','delivered'];
+                $statusColors = [
+                  'shipped'=>'bg-primary',
+                  'in_transit'=>'bg-warning',
+                  'delivered'=>'bg-success'
+                ];
+              @endphp
+
+              @if(in_array($product['status'],$finalStatuses))
+                <span class="badge {{ $statusColors[$product['status']] ?? 'bg-secondary' }}">
+                  {{ ucfirst(str_replace('_',' ',$product['status'])) }}
+                </span>
+              @else
+                <button class="btn btn-sm {{ isset($product['vendor_id'])?'btn-warning update-btn':'btn-primary assign-btn' }}"
+                        data-product-id="{{ $product['product_id'] }}"
+                        data-order-id="{{ $order['id'] }}">
+                  {{ isset($product['vendor_id'])?'Update':'Assign' }}
+                </button>
+              @endif
+            </td>
+          </tr>
           @endforeach
+
+          @if($allUnassigned)
+          <tr>
+            <td colspan="9" class="text-end">
+              <button id="assignAllBtn"
+                      class="btn btn-sm btn-primary"
+                      data-url="{{ route('orders.assignVendorAjax',$order['id']) }}">
+                ASSIGN ALL
+              </button>
+            </td>
+          </tr>
+          @endif
+
         </tbody>
       </table>
-
-      <!-- Order Summary Information -->
-      <div class="row align-items-center mt-4">
-        <div class="col-md-6">
-          <p><strong>Subtotal:</strong> ₹{{ number_format($order['subtotal'], 2) }}</p>
-          <p><strong>Discount:</strong> ₹{{ number_format($order['discount'], 2) }}</p>
-          <p><strong>Tax:</strong> ₹{{ number_format($order['tax'], 2) }}</p>
-          <h5><strong>Total:</strong> ₹{{ number_format($order['total_amount'], 2) }}</h5>
-        </div>
-        <!-- Right Column: Assigned Vendor Details as Cards -->
-        {{-- <div class="col-md-6">
-          <h6>Assigned Vendor Details</h6>
-          @foreach($order['products'] as $product)
-            @if(isset($product['vendor_id']))
-              <div class="card mb-1">
-                <div class="card-body p-2">
-                  <!-- Product name as card title -->
-                  <h6 class="card-title">{{ $product['name'] }}</h6>
-                  
-                  <!-- Vendor Details -->
-                  <p class="card-text">
-                    <strong>Vendor:</strong>
-                    @foreach($vendors as $vendor)
-                      @if($vendor->id == $product['vendor_id'])
-                        {{ $vendor->name }} ({{ $vendor->vendor_code ?? 'N/A' }})
-                      @endif
-                    @endforeach
-                  </p>
-                  
-                  <!-- Product Status -->
-                  <p class="card-text">
-                    <strong>Status:</strong>
-                    {{ ucfirst(str_replace('_', ' ', $product['status'])) }}
-                  </p>
-                  
-                  <!-- Vendor Price (if set) -->
-                  @if(isset($product['vendor_price']))
-                    <p class="card-text">
-                      <strong>Vendor Price:</strong> ₹{{ number_format($product['vendor_price'], 2) }}
-                    </p>
-                  @endif
-                </div>
-              </div>
-            @endif
-          @endforeach
-        </div> --}}
-
-      </div>
     </div>
   </div>
 
-  <!-- Customer and Shipping Information -->
-  <div class="row">
+  <!-- Order Summary & Assigned Vendor Details -->
+  <div class="row mb-4">
+    <!-- Summary -->
     <div class="col-md-6">
-      <div class="card mb-4">
+      <div class="card p-3">
+        <p><strong>Subtotal:</strong> ₹{{ number_format($order['subtotal'],2) }}</p>
+        <p><strong>Discount:</strong> ₹{{ number_format($order['discount'],2) }}</p>
+        <p><strong>Tax:</strong> ₹{{ number_format($order['tax'],2) }}</p>
+        <h5><strong>Total:</strong> ₹{{ number_format($order['total_amount'],2) }}</h5>
+      </div>
+    </div>
+
+    <!-- Assigned Vendor Details -->
+    <div class="col-md-6">
+      <h6>Assigned Vendor Details</h6>
+      @foreach($products as $product)
+        @if(isset($product['vendor_id']))
+          <div class="card mb-2">
+            <div class="card-body p-2">
+              <div class="d-flex justify-content-between">
+                <h6 class="card-title">{{ $product['name'] }}</h6>
+                <span class="card-text">
+                  <strong>Status:</strong>
+                  {{ ucfirst(str_replace('_',' ',$product['status'])) }}
+                </span>
+              </div>
+              <div class="d-flex justify-content-between align-items-center">
+                <span class="card-text">
+                  <strong>Vendor:</strong>
+                  @foreach($vendors as $vendor)
+                    @if($vendor->id==$product['vendor_id'])
+                      {{ $vendor->name }} ({{ $vendor->vendor_code ?? 'N/A' }})
+                    @endif
+                  @endforeach
+                </span>
+                @if(
+                  isset($product['assignment_id']) &&
+                  isset($product['vendor_price']) &&
+                  in_array($product['status'],['shipped','in_transit'])
+                )
+                  <form id="deliveredForm_{{ $product['assignment_id'] }}"
+                        method="POST"
+                        action="{{ route('updateStatus',$product['assignment_id']) }}"
+                        class="d-inline">
+                    @csrf
+                    <input type="hidden" name="status" value="delivered">
+                    <button type="button"
+                            class="btn btn-success btn-sm"
+                            onclick="confirmDelivered({{ $product['assignment_id'] }})">
+                      Mark as Delivered
+                    </button>
+                  </form>
+                @endif
+              </div>
+              @if(isset($product['vendor_price']))
+                <div class="mt-2">
+                  <strong>Vendor Price:</strong>
+                  ₹{{ number_format($product['vendor_price'],2) }}
+                </div>
+              @endif
+            </div>
+          </div>
+        @endif
+      @endforeach
+    </div>
+  </div>
+
+  <!-- Customer & Shipping Info -->
+  <div class="row">
+    <div class="col-md-6 mb-4">
+      <div class="card">
         <div class="card-header"><h5>Customer Details</h5></div>
         <div class="card-body">
           <p><strong>Name:</strong> {{ $order['customer_name'] }}</p>
@@ -168,8 +216,8 @@
         </div>
       </div>
     </div>
-    <div class="col-md-6">
-      <div class="card mb-4">
+    <div class="col-md-6 mb-4">
+      <div class="card">
         <div class="card-header"><h5>Shipping Address</h5></div>
         <div class="card-body">
           <p>{{ $order['address'] }}</p>
@@ -185,97 +233,157 @@
     <div class="modal-content image-preview-modal">
       <div class="modal-header">
         <h5 class="modal-title">Product Image</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body d-flex justify-content-center align-items-center">
-        <img src="" alt="Full Size" id="previewImage" class="img-fluid rounded" style="max-width: 90%; max-height: 80vh; object-fit: contain;">
+        <img src="" alt="Full Size" id="previewImage" class="img-fluid rounded"
+             style="max-width:90%;max-height:80vh;object-fit:contain;">
       </div>
     </div>
   </div>
 </div>
-
 @endsection
 
 @section('scripts')
-  <!-- jQuery and SweetAlert2 JS -->
-  <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
-  <script>
-    $(document).ready(function () {
-      // Handler for Assign/Update button click
-      $('.assign-btn, .update-btn').click(function () {
-        let btn = $(this);
-        let productId = btn.data('product-id');
-        let orderId = btn.data('order-id');
-        let vendorId = $(`.vendor-select[data-product-id="${productId}"]`).val();
-        let productName = btn.closest('tr').find('.product-name').text();
-        let actionType = btn.hasClass('assign-btn') ? 'Assign' : 'Update';
+<script>
+  $(function () {
 
-        // Validate vendor selection
-        if (!vendorId) {
-          Swal.fire({
-            icon: 'error',
-            title: 'Validation Error',
-            text: 'Please select a vendor before proceeding.'
-          });
-          return;
-        }
-
-        // Confirm the assign/update action
-        Swal.fire({
-          icon: 'question',
-          title: `${actionType} Vendor`,
-          text: `Are you sure you want to ${actionType.toLowerCase()} vendor for "${productName}"?`,
-          showCancelButton: true,
-          confirmButtonText: `Yes, ${actionType}`,
-          cancelButtonText: 'Cancel'
-        }).then((result) => {
-          if (result.isConfirmed) {
-            btn.prop('disabled', true).text(`${actionType}ing...`);
-
-            $.ajax({
-              url: "{{ route('orders.assignVendorAjax', $order['id']) }}",
-              type: "POST",
-              data: {
-                _token: "{{ csrf_token() }}",
-                vendor_assignments: {
-                  [productId]: { vendor_id: vendorId }
-                }
-              },
-              success: function () {
-                Swal.fire({
-                  icon: 'success',
-                  title: 'Success!',
-                  text: `${actionType}ed vendor for "${productName}" successfully.`,
-                  background: '#1e1e2f',
-                  color: '#fff'
-                });
-
-                btn.removeClass('btn-primary assign-btn')
-                   .addClass('btn-warning update-btn')
-                   .text('Update')
-                   .prop('disabled', false);
-              },
-              error: function (err) {
-                Swal.fire({
-                  icon: 'error',
-                  title: 'Oops!',
-                  text: err.responseJSON?.message || 'Something went wrong.',
-                  background: '#1e1e2f',
-                  color: '#fff'
-                });
-                btn.prop('disabled', false).text(actionType);
-              }
-            });
-          }
-        });
-      });
-
-      $('.product-thumbnail').click(function () {
-        let imageUrl = $(this).data('image');
-        $('#previewImage').attr('src', imageUrl);
-      });
+    // Handle single assign/update
+    $(document).on('click', '.assign-btn, .update-btn', function () {
+      const pid = $(this).data('product-id');
+      const orderId = $(this).data('order-id');
+      const actionLabel = $(this).hasClass('assign-btn') ? 'Assign' : 'Update';
+      assignVendor(pid, orderId, actionLabel);
     });
-  </script>
+
+    // Handle Assign All
+    $(document).on('click', '#assignAllBtn', function () {
+      const orderId = "{{ $order['id'] }}";
+      const url = $(this).data('url');
+      assignAllVendors(orderId, url);
+    });
+
+    // Image Preview
+    $(document).on('click', '.product-thumbnail', function () {
+      $('#previewImage').attr('src', $(this).data('image'));
+    });
+
+  });
+
+  function assignVendor(pid, orderId, label) {
+    const vid = $(`.vendor-select[data-product-id="${pid}"]`).val();
+    const price = $(`.assign-price[data-product-id="${pid}"]`).val();
+    const $btn = $(`.assign-btn[data-product-id="${pid}"], .update-btn[data-product-id="${pid}"]`);
+
+    if (!vid) return Swal.fire('Error', 'Please select a vendor.', 'error');
+    if (!price) return Swal.fire('Error', 'Please enter a price.', 'error');
+
+    Swal.fire({
+      icon: 'question',
+      title: `${label} Vendor?`,
+      showCancelButton: true,
+      confirmButtonText: `Yes, ${label}`
+    }).then(result => {
+      if (!result.isConfirmed) return;
+
+      $btn.prop('disabled', true).text(`${label}ing…`);
+
+      $.post("{{ route('orders.assignVendorAjax', $order['id']) }}", {
+        _token: "{{ csrf_token() }}",
+        vendor_assignments: { [pid]: { vendor_id: vid, vendor_price: price } }
+      }).done(res => showVendorResponse(res, $btn, label))
+        .fail(err => {
+          Swal.fire('Error', err.responseJSON?.message || 'Something went wrong.', 'error');
+          $btn.prop('disabled', false).text(label);
+        });
+    });
+  }
+
+  function assignAllVendors(orderId, url) {
+    const assigns = {}, errors = [];
+    const $btn = $('#assignAllBtn');
+    const label = 'ASSIGN ALL';
+
+    $('.vendor-select').each(function () {
+      const pid = $(this).data('product-id');
+      const vid = $(this).val();
+      const price = $(`.assign-price[data-product-id="${pid}"]`).val();
+      if (!vid) errors.push(`Missing vendor for product ${pid}`);
+      if (!price) errors.push(`Missing price for product ${pid}`);
+      assigns[pid] = { vendor_id: vid, vendor_price: price };
+    });
+
+    if (errors.length) {
+      return Swal.fire('Error', 'Please complete all fields:<br>' + errors.join('<br>'), 'error');
+    }
+
+    Swal.fire({
+      icon: 'question',
+      title: 'Assign All Vendors?',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, Assign'
+    }).then(result => {
+      if (!result.isConfirmed) return;
+
+      $btn.prop('disabled', true).text('Assigning…');
+
+      $.post(url, {
+        _token: "{{ csrf_token() }}",
+        vendor_assignments: assigns
+      }).done(res => showVendorResponse(res, $btn, label))
+        .fail(err => {
+          Swal.fire('Error', err.responseJSON?.message || 'Something went wrong.', 'error');
+          $btn.prop('disabled', false).text(label);
+        });
+    });
+  }
+
+  function showVendorResponse(res, $btn, label) {
+    if (res.success) {
+      Swal.fire({
+        icon: 'success',
+        title: 'Success',
+        text: res.message,
+        toast: true,
+        position: 'top-end',
+        timer: 2000,
+        showConfirmButton: false
+      }).then(() => location.reload());
+    } else {
+      Swal.fire({
+        icon: 'warning',
+        title: 'Partial Success',
+        html: res.message + '<ul>' + (res.errors || []).map(e => `<li>${e}</li>`).join('') + '</ul>',
+        confirmButtonText: 'OK'
+      });
+      $btn.prop('disabled', false).text(label);
+    }
+  }
+
+  // Confirm Delivered
+  function confirmDelivered(id) {
+    Swal.fire({
+      icon: 'question',
+      title: 'Mark as Delivered?',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, Deliver'
+    }).then(result => {
+      if (result.isConfirmed) {
+        Swal.fire({
+          icon: 'success',
+          title: 'Delivered!',
+          timer: 1000,
+          showConfirmButton: false
+        }).then(() => {
+          document.getElementById(`deliveredForm_${id}`).submit();
+        });
+      }
+    });
+  }
+</script>
+ 
+
 @endsection
